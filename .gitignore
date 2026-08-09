@@ -1,0 +1,9 @@
+# never commit tokens or run artifacts
+plex_token.txt
+*.csv
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
