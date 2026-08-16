@@ -176,6 +176,9 @@ def main():
     ap.add_argument('--max-candidates', type=int, default=6)
     ap.add_argument('--dry-run', action='store_true', help='report what lacks subtitles, download nothing')
     ap.add_argument('--blocklist', help='JSON {label: [substrings]} of candidates to never accept')
+    ap.add_argument('--keys', help='comma-separated rating keys: search ONLY these items. '
+                                   'Implies --retry for them, since you are naming them '
+                                   'deliberately (e.g. after deleting a wrong-episode track).')
     args = ap.parse_args()
 
     if not args.token:
@@ -192,10 +195,20 @@ def main():
             f.write(json.dumps(kw) + '\n')
 
     # ---- discover items
+    only = set(k.strip() for k in args.keys.split(',')) if args.keys else None
     dirs = plex.get('/library/sections').get('Directory', [])
     keys = args.sections.split(',') if args.sections else None
     items = []
-    for d in dirs:
+    if only:
+        # Named explicitly: fetch just those, skip the whole-library sweep. Drop
+        # any prior verdict so a rerun actually retries them - the usual reason
+        # for naming keys is that the previous answer was wrong.
+        for rk in sorted(only):
+            d, _ = plex.sub_streams(rk)
+            items.append((d.get('librarySectionTitle') or '?', {'ratingKey': rk}))
+            state.pop(str(rk), None)
+        print(f'targeting {len(items)} named item(s)', file=sys.stderr)
+    for d in [] if only else dirs:
         if d['type'] not in ('movie', 'show'):
             continue
         if keys and d['key'] not in keys:
@@ -212,7 +225,9 @@ def main():
             d, streams = plex.sub_streams(m['ratingKey'])
         except Exception:
             return None
-        if not needs_subs(streams, args.language):
+        # When keys are named explicitly the caller has already decided these
+        # need attention, so do not second-guess them on existing streams.
+        if not only and not needs_subs(streams, args.language):
             return None
         label = d.get('title') if d.get('type') == 'movie' else \
             f"{d.get('grandparentTitle')} S{d.get('parentIndex')}E{d.get('index')} {d.get('title')}"
