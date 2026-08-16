@@ -1,6 +1,15 @@
 # claude-plex-defaults
 
-A [Claude Code](https://claude.com/claude-code) **skill** that bulk-sets per-user default
+[Claude Code](https://claude.com/claude-code) **skills** for looking after a Plex library
+from the outside — via Plex's HTTP API, never touching media files.
+
+- [**plex-defaults**](plex-defaults/) — bulk-set per-user default audio and subtitle tracks.
+- [**plex-subtitles**](plex-subtitles/) — audit which items lack subtitles, download
+  matching SRTs with guards against wrong-film matches, and time-align them to the audio.
+
+## plex-defaults
+
+Bulk-sets per-user default
 audio and subtitle tracks across entire Plex libraries — e.g. "default everything to 5.1
 surround if available, subtitles off for me, subtitles on for one family member" — safely,
 with a dry-run-first workflow, a full audit log, and one-command revert.
@@ -49,15 +58,45 @@ python plex-defaults/scripts/plex_set_defaults.py --revert plex_defaults_log_XXX
 `--sections` limits which libraries are touched (default: every movie/show library),
 `--limit`/`--title` scope test runs, `--langs` sets language preference (default `eng`).
 
+## plex-subtitles
+
+[`plex-subtitles/`](plex-subtitles/) finds items with no usable **text** subtitle
+(VOBSUB/PGS are image formats — they can't be resynced or restyled, so they count as
+missing), searches Plex's subtitle provider, and aligns what it downloads to the audio.
+
+```bash
+pwsh -File plex-subtitles/scripts/install-tools.ps1     # ffsubsync + a working VAD
+export PLEX_TOKEN=... PLEX_BASEURL=http://myserver:32400
+
+python plex-subtitles/scripts/plex_subtitle_search.py --dry-run   # what's missing
+python plex-subtitles/scripts/plex_subtitle_search.py             # search + download
+python plex-subtitles/scripts/plex_subtitle_resync.py     --path-map /share/CACHEDEV1_DATA/=//nas/ --workers 2
+```
+
+Both phases are resumable and safe to interrupt. The interesting parts are the guards,
+and `SKILL.md` explains why each exists:
+
+- **Runtime alone picks the wrong film.** "A Murder of Quality" (1991) was matched to
+  *A Murder of Crows* (1998), "Dirty Harry" to *The Dead Pool* — all fitting the runtime.
+  Candidates must also look like the production by name, after release-scene noise is
+  stripped, with an escape hatch for names carrying no title at all.
+- **PAL rips need rescaling, not rejecting.** Subtitles 2–7.5% long are usually the right
+  ones timed for a 23.976fps transfer; they're accepted and the framerate is corrected.
+- **Alignment is corroborated, never trusted.** ffsubsync will confidently return a shift
+  pinned to the edge of its search range when it can't align at all — it proposed −58s for
+  subtitles that were already correct. Nothing is applied unless a second, independent
+  measurement agrees, and originals are backed up before any upload, which cannot be undone.
+
 ## Install as a Claude Code skill
 
 ```bash
 git clone https://github.com/mwadams/claude-plex-defaults.git
-cp -r claude-plex-defaults/plex-defaults ~/.claude/skills/plex-defaults
+cp -r claude-plex-defaults/plex-defaults   ~/.claude/skills/plex-defaults
+cp -r claude-plex-defaults/plex-subtitles  ~/.claude/skills/plex-subtitles
 ```
 
-Claude discovers it automatically and consults `SKILL.md` when you ask to change default
-audio or subtitle behavior on a Plex server.
+Claude discovers them automatically and consults the relevant `SKILL.md` when you ask to
+change default audio/subtitle behaviour, or to add and fix subtitles, on a Plex server.
 
 ## Requirements
 
