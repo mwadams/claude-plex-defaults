@@ -106,6 +106,50 @@ Anchor passes must run with `--no-fix-framerate --max-offset-seconds 15`;
 unconstrained they latch onto spurious alignments (-57.8s on a file whose true
 residual was ~2.4s).
 
+### Agreement is not corroboration — check each anchor is a real measurement
+
+**A railed anchor is a failure report, not a number.** Two anchors that both
+failed come back pinned at the same bound (`-14.99`, `-14.99`), so they *agree
+perfectly* and sail through an agreement test. An audit of 127 applied fixes
+found 15 resting on exactly this: +37.6s applied to a Fry & Laurie episode,
++27.2s to a Derren Brown episode whose anchors were both precisely -14.99.
+
+So reject any anchor within `ANCHOR_RAIL_MARGIN` of `+/-ANCHOR_MAX_OFFSET`
+*before* comparing them, and apply the same rule to the global pass at its own
+±60 bound. Also hold when both anchors are real and agree but both sit far from
+zero (`MAX_ANCHOR_RESIDUAL`) — the shape is right, the placement is not.
+
+Audit the applied set from the log rather than trusting it; `oa`/`ob` in each
+`resynced` record are the post-fit residuals and cost nothing to re-read.
+
+## When no shift or scale can work: a different cut
+
+Measure the error at **two** landmarks pinned in the VIDEO by frame-scanning
+(`ffmpeg -ss N -t 40 -vf "fps=1,tile=8x5"`), then find the cue carrying each
+line. Sketch title cards and hard scene cuts are exact to the second.
+
+| both landmarks | meaning |
+|---|---|
+| near zero | correct |
+| off by the same amount | pure shift — safe to apply |
+| **errors differ** | **the subtitle is for a different cut** |
+
+On *A Bit of Fry & Laurie* S02E04 the attached track measured `+0.4s` at 3:28
+and `-17.8s` at 7:27 — the video's dinner scene runs ~18s longer than the
+subtitle's. No offset or scale can fix that; a different release is needed.
+ffsubsync had returned `-32.96s`, the wrong *sign* from what the user heard,
+at a score indistinguishable from its correct answers. Any single correlation
+number against a differently-cut episode is meaningless, so when a reported
+offset and a measured one disagree in sign, suspect the cut before the timing.
+
+## The download quota is the real constraint
+
+Candidates cannot be read before downloading, so testing them consumes the
+provider quota. Exhausting it is silent: `PUT` returns 200, no stream ever
+appears, and no activity registers. Batch candidate tests, and when downloads
+start no-oping, stop — retrying burns nothing but time. Verification work
+(landmarks, log audits, re-reading attached subtitles) needs no quota at all.
+
 **A constant offset is undetectable from the file alone.** Title and duration
 checks catch wrong films and wrong transfers; only listening catches a
 correctly-shaped file sitting uniformly early. When the user reports one, ask

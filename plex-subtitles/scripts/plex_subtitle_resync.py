@@ -41,6 +41,10 @@ MAX_TRUST = 30.0          # never apply a shift larger than this
 SCALE_TOL = 0.0002
 MAX_ANCHOR_DIFF = 5.0     # sanity bound on drift measured between anchors
 ANCHOR_MAX_OFFSET = 15    # anchors measure a residual, so bound their search
+ANCHOR_RAIL_MARGIN = 0.6  # within this of +/-ANCHOR_MAX_OFFSET = failed, not measured
+MAX_ANCHOR_RESIDUAL = 2.0 # both anchors agreeing but this far out = bad placement
+GLOBAL_RAIL = 60.0        # the main pass's search bound; same rail logic applies
+GLOBAL_RAIL_MARGIN = 3.0
 
 OFF = re.compile(r'offset seconds:\s*(-?[\d.]+)')
 SCL = re.compile(r'framerate scale factor:\s*([\d.]+)')
@@ -216,8 +220,22 @@ def refine(aligner, video, tmp, synced_text, dur):
         times = cue_times(txt)
         res[tag] = (off, sum(times) / len(times))
     (oa, ta), (ob, tb) = res['a'], res['b']
+    # An anchor pinned to the edge of its search window is not a measurement -
+    # it is ffsubsync reporting that it could not align at all. Two such
+    # failures both railed at -14.99 AGREE PERFECTLY, so the agreement test
+    # below cannot catch them: it was passing them as corroborated. Reject any
+    # railed anchor before comparing them. This was applying confident,
+    # wholly unfounded shifts (+37.6s on one, +27.2s on another whose anchors
+    # were both exactly -14.99).
+    for tag, val in (('a', oa), ('b', ob)):
+        if abs(abs(val) - ANCHOR_MAX_OFFSET) < ANCHOR_RAIL_MARGIN:
+            return None, None, f'anchor_{tag}_railed'
     if abs(ob - oa) > MAX_ANCHOR_DIFF or tb - ta < 300:
         return None, None, 'anchors_inconsistent'
+    # Both anchors real and agreeing, but both far from zero, means a uniform
+    # error survived the fit - the shape is right and the placement is wrong.
+    if min(abs(oa), abs(ob)) > MAX_ANCHOR_RESIDUAL:
+        return None, None, 'residual_too_large'
     scale = 1.0 + (ob - oa) / (tb - ta)
     shift = oa - (scale - 1.0) * ta
     return scale, shift, {'oa': round(oa, 3), 'ob': round(ob, 3),
@@ -267,6 +285,13 @@ def process(plex, aligner, rk, label, state, opts):
         if offset is None:
             state[rk] = {'r': 'align_fail', 'label': label}
             return {'event': 'align_fail', 'label': label, 'tail': err}
+        # Same rail logic as the anchors: a global offset sitting on the
+        # search bound means ffsubsync failed, not that the file is a minute
+        # out. Check this before MAX_TRUST so the log says WHY it was held.
+        if abs(abs(offset) - GLOBAL_RAIL) < GLOBAL_RAIL_MARGIN:
+            state[rk] = {'r': 'align_railed', 'label': label, 'offset': offset}
+            return {'event': 'align_railed', 'label': label,
+                    'offset': round(offset, 2), 'scale': scale, 'vad': vad}
         if abs(offset) > MAX_TRUST:
             state[rk] = {'r': 'needs_review', 'label': label, 'offset': offset}
             return {'event': 'needs_review', 'label': label,
@@ -343,6 +368,10 @@ def main():
     ap.add_argument('--workers', type=int, default=2,
                     help='keep low: each worker streams a whole audio track')
     ap.add_argument('--limit', type=int)
+    ap.add_argument('--keys', help='comma-separated rating keys: resync ONLY these, and '
+                                   'redo them even if a previous verdict exists. Use after '
+                                   'attaching a subtitle by hand, which the sweep state '
+                                   'knows nothing about.')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--no-cleanup', action='store_true',
                     help='keep the subtitle tracks a resync supersedes '
@@ -374,8 +403,19 @@ def main():
     opts = {'map': mapper, 'backup': os.path.join(args.workdir, 'backups'),
             'dry_run': args.dry_run, 'cleanup': not args.no_cleanup}
 
-    todo = [(rk, v['label']) for rk, v in sweep.items()
-            if isinstance(v, dict) and v.get('r') == 'matched' and rk not in state]
+    if args.keys:
+        # Named explicitly: bypass the sweep state entirely. A hand-attached
+        # subtitle never went through the search, so it has no 'matched'
+        # record, and any stale verdict must not suppress the rerun.
+        todo = []
+        for rk in [k.strip() for k in args.keys.split(',') if k.strip()]:
+            state.pop(rk, None)
+            d = plex.meta(rk)
+            todo.append((rk, f"{d.get('grandparentTitle')} S{d.get('parentIndex')}"
+                             f"E{d.get('index')} {d.get('title')}"))
+    else:
+        todo = [(rk, v['label']) for rk, v in sweep.items()
+                if isinstance(v, dict) and v.get('r') == 'matched' and rk not in state]
     todo.sort(key=lambda x: x[1])
     if args.limit:
         todo = todo[:args.limit]
