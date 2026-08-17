@@ -232,10 +232,12 @@ def refine(aligner, video, tmp, synced_text, dur):
             return None, None, f'anchor_{tag}_railed'
     if abs(ob - oa) > MAX_ANCHOR_DIFF or tb - ta < 300:
         return None, None, 'anchors_inconsistent'
-    # Both anchors real and agreeing, but both far from zero, means a uniform
-    # error survived the fit - the shape is right and the placement is wrong.
-    if min(abs(oa), abs(ob)) > MAX_ANCHOR_RESIDUAL:
-        return None, None, 'residual_too_large'
+    # oa/ob are residuals of the ALREADY-SHIFTED text, measured before this
+    # fit. The line below passes exactly through both, so both anchors end at
+    # ~0 by construction: a large but REAL residual here is what the
+    # refinement exists to remove, not a fault. Only a railed (unmeasurable)
+    # anchor invalidates the result. Do not add a magnitude test here - one was
+    # added on a misreading of these fields and would have held valid fixes.
     scale = 1.0 + (ob - oa) / (tb - ta)
     shift = oa - (scale - 1.0) * ta
     return scale, shift, {'oa': round(oa, 3), 'ob': round(ob, 3),

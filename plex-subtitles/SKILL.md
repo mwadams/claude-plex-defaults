@@ -116,11 +116,17 @@ found 15 resting on exactly this: +37.6s applied to a Fry & Laurie episode,
 
 So reject any anchor within `ANCHOR_RAIL_MARGIN` of `+/-ANCHOR_MAX_OFFSET`
 *before* comparing them, and apply the same rule to the global pass at its own
-±60 bound. Also hold when both anchors are real and agree but both sit far from
-zero (`MAX_ANCHOR_RESIDUAL`) — the shape is right, the placement is not.
+±60 bound.
 
-Audit the applied set from the log rather than trusting it; `oa`/`ob` in each
-`resynced` record are the post-fit residuals and cost nothing to re-read.
+**Do not add a magnitude test on `oa`/`ob`.** They are residuals of the
+already-shifted text, measured *before* the fit, and the fit passes exactly
+through both — so both anchors end at ~0 by construction. A large but real
+residual is what the refinement exists to remove, not evidence of a fault. Only
+a railed anchor invalidates the result. One such test was added on a misreading
+of these fields and would have held valid fixes.
+
+Audit the applied set from the log rather than trusting it: `oa`/`ob` in each
+`resynced` record cost nothing to re-read, and a railed pair is unmistakable.
 
 ## When no shift or scale can work: a different cut
 
