@@ -148,6 +148,34 @@ at a score indistinguishable from its correct answers. Any single correlation
 number against a differently-cut episode is meaningless, so when a reported
 offset and a measured one disagree in sign, suspect the cut before the timing.
 
+## Reaching an episode the agent has mis-numbered
+
+Plex searches the provider using the *agent's* episode identity, so when the
+agent's episode list is wrong, the right subtitle is unreachable by default —
+every candidate offered comes back for the wrong episode.
+
+Pass a **`title` parameter** to the search endpoint to override the query with
+free text:
+
+```
+/library/metadata/{rk}/subtitles?language=en&hearingImpaired=0&forced=3
+                                &title=A Bit of Fry and Laurie S04E04
+```
+
+Only `title` works; `query`, `searchTitle`, `episode` and `year` are ignored.
+The candidates it returns download and attach normally, onto whichever item you
+searched from.
+
+On *A Bit of Fry & Laurie* series 4 the agent omits the episode broadcast
+5 March 1995 and lists the 19 March one twice, so slots 4-6 all searched one
+episode ahead. The override retrieved the correct subtitle for slot 4, verified
+by content and by two landmarks. **Correcting and locking the local metadata
+does not help** — the provider keys on the upstream guid, not the local title.
+
+If a download silently no-ops here, suspect quota before concluding the
+identity is at fault: both fail the same way, and quota was the real cause once
+when identity was blamed.
+
 ## The download quota is the real constraint
 
 Candidates cannot be read before downloading, so testing them consumes the
