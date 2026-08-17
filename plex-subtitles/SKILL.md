@@ -38,7 +38,15 @@ python scripts/plex_subtitle_resync.py --path-map ... --workers 2
 
 Keep `--workers` low (2 is a good default). Each worker streams a whole audio
 track off the NAS; three concurrent workers produced spurious alignment
-failures that vanished at two.
+failures that vanished at two. **This budget covers everything touching the
+media, not just workers** — running `ffmpeg` frame-scans for landmark checks
+alongside a 2-worker pass makes three readers and times alignments out. Do
+media-side investigation after the pass, or pause it.
+
+**Labels in the state files are snapshots** taken when the sweep ran. They go
+stale the moment anything is renumbered, so never diagnose a library numbering
+fault from them — two entries reading `S1E6` meant only that the sweep predated
+a fix. Check the library itself before concluding anything is mislabelled.
 
 ## What counts as "has subtitles"
 
