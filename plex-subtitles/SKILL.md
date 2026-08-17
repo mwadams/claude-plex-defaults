@@ -77,9 +77,26 @@ So a candidate must also *look* like the production:
 - **Escape hatch**: if the candidate name has *no* content words left after
   stripping noise (`English_ 23_975 fps_ 1h57m36s`), skip the title test -
   there is nothing to judge, and that name was correct for Blade Runner.
-- **For episodes**, an exact `SxxEyy` match satisfies the guard on its own;
-  release names abbreviate show names ("DS9" scores 0.4 against "Deep Space
-  Nine"). A *mismatched* `SxxEyy` rejects outright.
+- **For episodes**, an exact `SxxEyy` *lowers* the name bar to
+  `SE_TITLE_FLOOR` (0.3) — it must never remove it. Release names abbreviate
+  show names ("DS9" scores 0.4 against "Deep Space Nine"), which is what the
+  allowance is for. A *mismatched* `SxxEyy` rejects outright.
+- **Score the episode title as well as the show name**, and take the better of
+  the two. Releases legitimately drop the show name but keep the episode
+  (`S03E01 - Aftermath.eng`), and those are correct.
+- **Ignore placeholder episode titles.** Plex names untitled episodes
+  "Episode 7"; stripped of stopwords and digits that is empty, and an empty
+  anchor matches everything — it scored **1.00** against
+  `Fresh.Fried.and.Crispy.S01E07`. `usable_title()` exists for this.
+
+> **Why this is not theoretical.** Letting `SxxEyy` alone clear the guard put
+> **225 wrong-show subtitles into a 2,681-item library — 8.4%**. Ace of Wands
+> took Record of Ragnarok, Blood of Zeus and Elena of Avalor; Beasts took Beast
+> Games; Harry's Game took a French Mobutu documentary; The Changes took The
+> Jeffersons. Every one matched the episode number and a plausible runtime, and
+> nothing else. Audit an existing library with: count kept items whose recorded
+> `sim` is 0.0, then re-score each against the episode title to separate the
+> genuine name-less releases from the impostors.
 - **Coverage**: last cue at 85-102% of runtime, >= 20 cues.
 
 **Known residual risk:** superset titles ("Dirty Harry" vs "Dirty Harry Dead

@@ -41,6 +41,10 @@ MIN_COVER, MAX_COVER, MIN_CUES = 0.85, 1.02, 20
 PAL_BANDS = ((1.021, 1.075), (0.930, 0.975))
 
 MIN_TITLE_SIM = 0.6
+# An exact SxxEyy lowers the name bar rather than removing it. 0.3 keeps the
+# abbreviations this exists for ("DS9" scores 0.4 against "Deep Space Nine")
+# while rejecting names that share nothing with the show OR the episode.
+SE_TITLE_FLOOR = 0.3
 BAD_TITLE = re.compile(r'commentary|karaoke|lyrics', re.I)
 
 STOP = {'the', 'a', 'an', 'of', 'and', 'or', 'to', 'in', 'at', 'on', 'for',
@@ -76,6 +80,20 @@ def content_words(s):
             continue
         out.append(w)
     return out
+
+
+def usable_title(t):
+    """Does this title carry words of its own, or is it a placeholder?
+
+    Plex names untitled episodes "Episode 7". Stripped of stopwords and digits
+    that leaves nothing, and an empty anchor matches every candidate perfectly
+    - "Episode 7" scored 1.00 against "Fresh.Fried.and.Crispy.S01E07". Such a
+    title must not be allowed to vouch for anything.
+    """
+    if not t:
+        return False
+    return any(w not in STOP and w not in NOISE and not w.isdigit()
+               for w in re.findall(r"[a-z0-9']+", t.lower()))
 
 
 def title_sim(want, cand):
@@ -234,6 +252,7 @@ def main():
         return {'rk': str(m['ratingKey']), 'label': label, 'section': section,
                 'type': d.get('type'), 'show': d.get('grandparentTitle'),
                 'season': d.get('parentIndex'), 'ep': d.get('index'),
+                'ep_title': d.get('title'),
                 'duration': (d.get('duration') or 0) / 1000}
 
     with ThreadPoolExecutor(max_workers=12) as ex:
@@ -273,6 +292,10 @@ def main():
             cands = [c for c in cands if pat.lower() not in (c.get('title') or '').lower()]
 
         anchor = it['show'] or label if it['type'] == 'episode' else label
+        ep_title = it.get('ep_title') if it['type'] == 'episode' else None
+        if not usable_title(ep_title):
+            ep_title = None    # "Episode 7" has no words of its own and would
+                               # score 1.00 against anything at all
         se = (int(it['season']), int(it['ep'])) if it.get('season') is not None \
             and it.get('ep') is not None else None
 
@@ -287,11 +310,20 @@ def main():
                         continue                      # explicitly a different episode
                     se_ok = True                      # explicitly THIS episode
             sim = title_sim(anchor, ct)
-            # An exact SxxEyy hit beats the show name, which release names
-            # routinely abbreviate ("DS9" scores 0.4 against "Deep Space Nine").
-            if not se_ok and sim is not None and sim < MIN_TITLE_SIM:
+            # Score the EPISODE title too: releases legitimately drop the show
+            # name but keep the episode ("S03E01 - Aftermath.eng").
+            sim_ep = title_sim(ep_title, ct) if ep_title else None
+            best = max([s for s in (sim, sim_ep) if s is not None], default=None)
+            # An exact SxxEyy hit LOWERS the bar - release names abbreviate show
+            # names ("DS9" scores 0.4 against "Deep Space Nine") - but it must
+            # not remove the bar. Accepting SxxEyy on its own let 225 wrong-show
+            # subtitles into one library: Ace of Wands took Record of Ragnarok
+            # and Elena of Avalor, Beasts took Beast Games. Each matched the
+            # episode number and a plausible runtime, and nothing else.
+            floor = SE_TITLE_FLOOR if se_ok else MIN_TITLE_SIM
+            if best is not None and best < floor:
                 continue
-            c['_sim'] = sim
+            c['_sim'] = best
             keep.append(c)
         keep.sort(key=lambda c: -int(c.get('score') or 0))
 
