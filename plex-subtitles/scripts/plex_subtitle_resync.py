@@ -326,7 +326,15 @@ def process(plex, aligner, rk, label, state, opts):
         with open(os.path.join(opts['backup'], f'{rk}_{safe}.orig.srt'), 'wb') as f:
             f.write(raw)
 
-        r = plex.upload(rk, f'{label} (synced)', final)
+        # Keep the SOURCE name in the title. Naming the output after the
+        # library item destroys the provenance: a wrong-show subtitle that gets
+        # resynced then appears in Plex as a correctly-named English SRT, which
+        # is how 37 Queer Eye and Private Eyes tracks sat on Public Eye looking
+        # legitimate. The source name is the only evidence of where it came
+        # from, and it survives nothing else.
+        src_name = (src.get('title') or '').strip()
+        out_name = f'{src_name} (synced)' if src_name else f'{label} (synced)'
+        r = plex.upload(rk, out_name, final)
         if r.status_code >= 300:
             state[rk] = {'r': 'upload_fail', 'label': label, 'code': r.status_code}
             return {'event': 'upload_fail', 'label': label, 'code': r.status_code}
